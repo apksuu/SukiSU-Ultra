@@ -79,6 +79,7 @@ fun SettingScreen(navigator: DestinationsNavigator) {
     val snackBarHost = LocalSnackbarHost.current
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    var isSuLogEnabled by remember { mutableStateOf(Natives.isSuLogEnabled()) }
     var selectedEngine by rememberSaveable {
         mutableStateOf(
             prefs.getString("webui_engine", "default") ?: "default"
@@ -270,6 +271,52 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                             }
                         )
 
+                        var kernelSuLogMode by rememberSaveable {
+                            mutableIntStateOf(
+                                run {
+                                    val currentEnabled = Natives.isSuLogEnabled()
+                                    val savedPersist = prefs.getInt("kernel_sulog_mode", 0)
+                                    if (savedPersist == 2) 2 else if (!currentEnabled) 1 else 0
+                                }
+                            )
+                        }
+                        SuperDropdown(
+                            icon = Icons.Filled.NoAccounts,
+                            title = stringResource(id = R.string.settings_disable_sulog),
+                            summary = stringResource(id = R.string.settings_disable_sulog_summary),
+                            items = modeItems,
+                            selectedIndex = kernelSuLogMode,
+                            onSelectedIndexChange = { index ->
+                                when (index) {
+                                    // Default: enable and save to persist
+                                    0 -> if (Natives.setSuLogEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("kernel_sulog_mode", 0) }
+                                        kernelSuLogMode = 0
+                                        isSuLogEnabled = true
+                                    }
+
+                                    // Temporarily disable: save enabled state first, then disable
+                                    1 -> if (Natives.setSuLogEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        if (Natives.setSuLogEnabled(false)) {
+                                            prefs.edit { putInt("kernel_sulog_mode", 0) }
+                                            kernelSuLogMode = 1
+                                            isSuLogEnabled = false
+                                        }
+                                    }
+
+                                    // Permanently disable: disable and save
+                                    2 -> if (Natives.setSuLogEnabled(false)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("kernel_sulog_mode", 2) }
+                                        kernelSuLogMode = 2
+                                        isSuLogEnabled = false
+                                    }
+                                }
+                            }
+                        )
+
                         // 卸载模块开关
                         var umountChecked by rememberSaveable { mutableStateOf(Natives.isDefaultUmountModules()) }
                         SwitchItem(
@@ -283,26 +330,6 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                                 }
                             }
                         )
-
-
-                        // 强制签名验证开关
-                        var forceSignatureVerification by rememberSaveable {
-                            mutableStateOf(prefs.getBoolean("force_signature_verification", false))
-                        }
-                        SwitchItem(
-                            icon = Icons.Filled.Security,
-                            title = stringResource(R.string.module_signature_verification),
-                            summary = stringResource(R.string.module_signature_verification_summary),
-                            checked = forceSignatureVerification,
-                            onCheckedChange = { enabled ->
-                                prefs.edit { putBoolean("force_signature_verification", enabled) }
-                                forceSignatureVerification = enabled
-                            }
-                        )
-                        // UID 扫描开关
-                        if (Natives.version >= Natives.MINIMAL_SUPPORTED_UID_SCANNER && Natives.version >= Natives.MINIMAL_NEW_IOCTL_KERNEL) {
-                            UidScannerSection(prefs, snackBarHost, scope, context)
-                        }
                     }
                 )
             }
@@ -403,14 +430,16 @@ fun SettingScreen(navigator: DestinationsNavigator) {
 
                     // 查看使用日志
                     KsuIsValid {
-                        SettingItem(
-                            icon = Icons.Filled.Visibility,
-                            title = stringResource(R.string.log_viewer_view_logs),
-                            summary = stringResource(R.string.log_viewer_view_logs_summary),
-                            onClick = {
-                                navigator.navigate(LogViewerScreenDestination)
-                            }
-                        )
+                        if (isSuLogEnabled) {
+                            SettingItem(
+                                icon = Icons.Filled.Visibility,
+                                title = stringResource(R.string.log_viewer_view_logs),
+                                summary = stringResource(R.string.log_viewer_view_logs_summary),
+                                onClick = {
+                                    navigator.navigate(LogViewerScreenDestination)
+                                }
+                            )
+                        }
                     }
                     val lkmMode = Natives.isLkmMode
                     KsuIsValid {
@@ -955,125 +984,4 @@ private fun TopBar(
         windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         scrollBehavior = scrollBehavior
     )
-}
-
-@Composable
-private fun UidScannerSection(
-    prefs: SharedPreferences,
-    snackBarHost: SnackbarHostState,
-    scope: CoroutineScope,
-    context: Context
-) {
-    if (Natives.version < Natives.MINIMAL_SUPPORTED_UID_SCANNER) return
-
-    val realAuto = Natives.isUidScannerEnabled()
-    val realMulti = getUidMultiUserScan()
-
-    var autoOn by remember { mutableStateOf(realAuto) }
-    var multiOn by remember { mutableStateOf(realMulti) }
-
-    LaunchedEffect(Unit) {
-        autoOn = realAuto
-        multiOn = realMulti
-        prefs.edit {
-            putBoolean("uid_auto_scan", autoOn)
-            putBoolean("uid_multi_user_scan", multiOn)
-        }
-    }
-
-    SwitchItem(
-        icon = Icons.Filled.Scanner,
-        title = stringResource(R.string.uid_auto_scan_title),
-        summary = stringResource(R.string.uid_auto_scan_summary),
-        checked = autoOn,
-        onCheckedChange = { target ->
-            autoOn = target
-            if (!target) multiOn = false
-
-            scope.launch(Dispatchers.IO) {
-                setUidAutoScan(target)
-                val actual = Natives.isUidScannerEnabled() || readUidScannerFile()
-                withContext(Dispatchers.Main) {
-                    autoOn = actual
-                    if (!actual) multiOn = false
-                    prefs.edit {
-                        putBoolean("uid_auto_scan", actual)
-                        putBoolean("uid_multi_user_scan", multiOn)
-                    }
-                    if (actual != target) {
-                        snackBarHost.showSnackbar(
-                            context.getString(R.string.uid_scanner_setting_failed)
-                        )
-                    }
-                }
-            }
-        }
-    )
-
-    AnimatedVisibility(
-        visible = autoOn,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically()
-    ) {
-        SwitchItem(
-            icon = Icons.Filled.Groups,
-            title = stringResource(R.string.uid_multi_user_scan_title),
-            summary = stringResource(R.string.uid_multi_user_scan_summary),
-            checked = multiOn,
-            onCheckedChange = { target ->
-                scope.launch(Dispatchers.IO) {
-                    val ok = setUidMultiUserScan(target)
-                    withContext(Dispatchers.Main) {
-                        if (ok) {
-                            multiOn = target
-                            prefs.edit { putBoolean("uid_multi_user_scan", target) }
-                        } else {
-                            snackBarHost.showSnackbar(
-                                context.getString(R.string.uid_scanner_setting_failed)
-                            )
-                        }
-                    }
-                }
-            }
-        )
-    }
-
-    AnimatedVisibility(
-        visible = autoOn,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically()
-    ) {
-        val confirmDialog = rememberConfirmDialog()
-        SettingItem(
-            icon = Icons.Filled.CleaningServices,
-            title = stringResource(R.string.clean_runtime_environment),
-            summary = stringResource(R.string.clean_runtime_environment_summary),
-            onClick = {
-                scope.launch {
-                    if (confirmDialog.awaitConfirm(
-                            title = context.getString(R.string.clean_runtime_environment),
-                            content = context.getString(R.string.clean_runtime_environment_confirm)
-                        ) == ConfirmResult.Confirmed
-                    ) {
-                        if (cleanRuntimeEnvironment()) {
-                            autoOn = false
-                            multiOn = false
-                            prefs.edit {
-                                putBoolean("uid_auto_scan", false)
-                                putBoolean("uid_multi_user_scan", false)
-                            }
-                            Natives.setUidScannerEnabled(false)
-                            snackBarHost.showSnackbar(
-                                context.getString(R.string.clean_runtime_environment_success)
-                            )
-                        } else {
-                            snackBarHost.showSnackbar(
-                                context.getString(R.string.clean_runtime_environment_failed)
-                            )
-                        }
-                    }
-                }
-            }
-        )
-    }
 }
