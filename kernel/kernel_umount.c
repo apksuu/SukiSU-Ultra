@@ -16,6 +16,7 @@
 #include "selinux/selinux.h"
 #include "feature.h"
 #include "ksud.h"
+#include "ksu.h"
 
 #include "umount_manager.h"
 #include "sulog.h"
@@ -72,16 +73,12 @@ void try_umount(const char *mnt, int flags)
 
 struct umount_tw {
     struct callback_head cb;
-    const struct cred *old_cred;
 };
 
 static void umount_tw_func(struct callback_head *cb)
 {
     struct umount_tw *tw = container_of(cb, struct umount_tw, cb);
-    const struct cred *saved = NULL;
-    if (tw->old_cred) {
-        saved = override_creds(tw->old_cred);
-    }
+    const struct cred *saved = override_creds(ksu_cred);
 
     struct mount_entry *entry;
     down_read(&mount_list_lock);
@@ -91,13 +88,9 @@ static void umount_tw_func(struct callback_head *cb)
     }
     up_read(&mount_list_lock);
 
-    ksu_umount_manager_execute_all(tw->old_cred);
+    ksu_umount_manager_execute_all(saved);
 
-    if (saved)
-        revert_creds(saved);
-
-    if (tw->old_cred)
-        put_cred(tw->old_cred);
+    revert_creds(saved);
 
     kfree(tw);
 }
@@ -106,7 +99,7 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
 {
     struct umount_tw *tw;
 
-    // this hook is used for umounting overlayfs for some uid, if there isn't any module mounted, just ignore it!
+    // if there isn't any module mounted, just ignore it!
     if (!ksu_module_mounted) {
         return 0;
     }
@@ -115,18 +108,28 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
         return 0;
     }
 
-    // FIXME: isolated process which directly forks from zygote is not handled
-    if (!is_appuid(new_uid)) {
+    if (!ksu_cred) {
         return 0;
     }
 
-    if (!ksu_uid_should_umount(new_uid)) {
+    // There are 5 scenarios:
+    // 1. Normal app: zygote -> appuid
+    // 2. Isolated process forked from zygote: zygote -> isolated_process
+    // 3. App zygote forked from zygote: zygote -> appuid
+    // 4. Isolated process froked from app zygote: appuid -> isolated_process (already handled by 3)
+    // 5. Isolated process froked from webview zygote (no need to handle, app cannot run custom code)
+    if (!is_appuid(new_uid) && !is_isolated_process(new_uid)) {
+        return 0;
+    }
+
+    if (!ksu_uid_should_umount(new_uid) && !is_isolated_process(new_uid)) {
         return 0;
     }
 
     // check old process's selinux context, if it is not zygote, ignore it!
     // because some su apps may setuid to untrusted_app but they are in global mount namespace
     // when we umount for such process, that is a disaster!
+    // also handle case 4 and 5
     bool is_zygote_child = is_zygote(get_current_cred());
     if (!is_zygote_child) {
         pr_info("handle umount ignore non zygote child: %d\n", current->pid);
@@ -142,14 +145,10 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
     if (!tw)
         return 0;
 
-    tw->old_cred = get_current_cred();
     tw->cb.func = umount_tw_func;
 
     int err = task_work_add(current, &tw->cb, TWA_RESUME);
     if (err) {
-        if (tw->old_cred) {
-            put_cred(tw->old_cred);
-        }
         kfree(tw);
         pr_warn("unmount add task_work failed\n");
     }

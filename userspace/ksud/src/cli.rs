@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result};
+use anyhow::{Context, Ok, Result};
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -7,7 +7,10 @@ use android_logger::Config;
 #[cfg(target_os = "android")]
 use log::LevelFilter;
 
-use crate::{apk_sign, assets, debug, defs, init_event, ksucalls, module, module_config, utils};
+use crate::boot_patch::{BootPatchArgs, BootRestoreArgs};
+use crate::{
+    apk_sign, assets, debug, defs, init_event, ksucalls, module, module_config, susfs, utils,
+};
 
 /// KernelSU userspace cli
 #[derive(Parser, Debug)]
@@ -33,6 +36,12 @@ enum Commands {
 
     /// Trigger `boot-complete` event
     BootCompleted,
+
+    /// Susfs
+    Susfs {
+        #[command(subcommand)]
+        command: Susfs,
+    },
 
     /// Install KernelSU userspace component to system
     Install {
@@ -66,62 +75,10 @@ enum Commands {
     },
 
     /// Patch boot or init_boot images to apply KernelSU
-    BootPatch {
-        /// boot image path, if not specified, will try to find the boot image automatically
-        #[arg(short, long)]
-        boot: Option<PathBuf>,
-
-        /// kernel image path to replace
-        #[arg(short, long)]
-        kernel: Option<PathBuf>,
-
-        /// LKM module path to replace, if not specified, will use the builtin one
-        #[arg(short, long)]
-        module: Option<PathBuf>,
-
-        /// init to be replaced
-        #[arg(short, long, requires("module"))]
-        init: Option<PathBuf>,
-
-        /// will use another slot when boot image is not specified
-        #[arg(short = 'u', long, default_value = "false")]
-        ota: bool,
-
-        /// Flash it to boot partition after patch
-        #[arg(short, long, default_value = "false")]
-        flash: bool,
-
-        /// output path, if not specified, will use current directory
-        #[arg(short, long, default_value = None)]
-        out: Option<PathBuf>,
-
-        /// magiskboot path, if not specified, will search from $PATH
-        #[arg(long, default_value = None)]
-        magiskboot: Option<PathBuf>,
-
-        /// KMI version, if specified, will use the specified KMI
-        #[arg(long, default_value = None)]
-        kmi: Option<String>,
-
-        /// target partition override (init_boot | boot | vendor_boot)
-        #[arg(long, default_value = None)]
-        partition: Option<String>,
-    },
+    BootPatch(BootPatchArgs),
 
     /// Restore boot or init_boot images patched by KernelSU
-    BootRestore {
-        /// boot image path, if not specified, will try to find the boot image automatically
-        #[arg(short, long)]
-        boot: Option<PathBuf>,
-
-        /// Flash it to boot partition after patch
-        #[arg(short, long, default_value = "false")]
-        flash: bool,
-
-        /// magiskboot path, if not specified, will search from $PATH
-        #[arg(long, default_value = None)]
-        magiskboot: Option<PathBuf>,
-    },
+    BootRestore(BootRestoreArgs),
 
     /// Show boot information
     BootInfo {
@@ -322,8 +279,11 @@ enum ModuleConfigCmd {
     Set {
         /// config key
         key: String,
-        /// config value
-        value: String,
+        /// config value (omit to read from stdin)
+        value: Option<String>,
+        /// read value from stdin (default if value not provided)
+        #[arg(long)]
+        stdin: bool,
         /// use temporary config (cleared on reboot)
         #[arg(short, long)]
         temp: bool,
@@ -481,6 +441,16 @@ mod kpm_cmd {
 }
 
 #[derive(clap::Subcommand, Debug)]
+enum Susfs {
+    /// Get SUSFS Status
+    Status,
+    /// Get SUSFS Version
+    Version,
+    /// Get SUSFS enable Features
+    Features,
+}
+
+#[derive(clap::Subcommand, Debug)]
 enum Umount {
     /// Add custom umount path
     Add {
@@ -544,7 +514,16 @@ pub fn run() -> Result<()> {
             init_event::on_boot_completed();
             Ok(())
         }
+        Commands::Susfs { command } => {
+            match command {
+                Susfs::Version => println!("{}", susfs::get_susfs_version()),
 
+                Susfs::Status => println!("{}", susfs::get_susfs_status()),
+
+                Susfs::Features => println!("{}", susfs::get_susfs_features()),
+            }
+            Ok(())
+        }
         Commands::Module { command } => {
             #[cfg(any(target_os = "linux", target_os = "android"))]
             {
@@ -576,17 +555,43 @@ pub fn run() -> Result<()> {
                                 None => anyhow::bail!("Key '{key}' not found"),
                             }
                         }
-                        ModuleConfigCmd::Set { key, value, temp } => {
-                            // Validate input at CLI layer for better user experience
+                        ModuleConfigCmd::Set {
+                            key,
+                            value,
+                            stdin,
+                            temp,
+                        } => {
+                            // Validate key at CLI layer for better user experience
                             module_config::validate_config_key(&key)?;
-                            module_config::validate_config_value(&value)?;
+
+                            // Read value from stdin or argument
+                            let value_str = match value {
+                                Some(v) if !stdin => v,
+                                _ => {
+                                    // Read from stdin
+                                    use std::io::Read;
+                                    let mut buffer = String::new();
+                                    std::io::stdin()
+                                        .read_to_string(&mut buffer)
+                                        .context("Failed to read from stdin")?;
+                                    buffer
+                                }
+                            };
+
+                            // Validate value
+                            module_config::validate_config_value(&value_str)?;
 
                             let config_type = if temp {
                                 module_config::ConfigType::Temp
                             } else {
                                 module_config::ConfigType::Persist
                             };
-                            module_config::set_config_value(&module_id, &key, &value, config_type)
+                            module_config::set_config_value(
+                                &module_id,
+                                &key,
+                                &value_str,
+                                config_type,
+                            )
                         }
                         ModuleConfigCmd::List => {
                             let config = module_config::merge_configs(&module_id)?;
@@ -674,20 +679,7 @@ pub fn run() -> Result<()> {
             },
         },
 
-        Commands::BootPatch {
-            boot,
-            init,
-            kernel,
-            module,
-            ota,
-            flash,
-            out,
-            magiskboot,
-            kmi,
-            partition,
-        } => crate::boot_patch::patch(
-            boot, kernel, module, init, ota, flash, out, magiskboot, kmi, partition,
-        ),
+        Commands::BootPatch(boot_patch) => crate::boot_patch::patch(boot_patch),
 
         Commands::BootInfo { command } => match command {
             BootInfo::CurrentKmi => {
@@ -729,11 +721,7 @@ pub fn run() -> Result<()> {
                 return Ok(());
             }
         },
-        Commands::BootRestore {
-            boot,
-            magiskboot,
-            flash,
-        } => crate::boot_patch::restore(boot, magiskboot, flash),
+        Commands::BootRestore(boot_restore) => crate::boot_patch::restore(boot_restore),
         Commands::Kernel { command } => match command {
             Kernel::NukeExt4Sysfs { mnt } => ksucalls::nuke_ext4_sysfs(&mnt),
             Kernel::Umount { command } => match command {

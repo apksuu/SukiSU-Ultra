@@ -378,39 +378,20 @@
     <!-- SuSFS Tab Titles -->
     <string name="susfs_tab_basic_settings">Cài đặt cơ bản</string>
     <string name="susfs_tab_sus_paths">Đường dẫn SuS</string>
-    <string name="susfs_tab_sus_mounts">SuS Mount</string>
-    <string name="susfs_tab_try_umount">Try Umount</string>
     <string name="susfs_tab_path_settings">Cài đặt Đường dẫn</string>
     <string name="susfs_tab_enabled_features">Trạng thái tính năng</string>
     <!-- SuSFS Path Management -->
     <string name="susfs_add_sus_path">Thêm Đường dẫn SuS</string>
-    <string name="susfs_add_sus_mount">Thêm SuS Mount</string>
-    <string name="susfs_add_try_umount">Thêm Try Umount</string>
     <string name="susfs_sus_path_added_success">Đường dẫn SuS đã được thêm thành công</string>
     <string name="susfs_path_not_found_error">Lỗi không tìm thấy đường dẫn</string>
     <string name="susfs_path_label">Đường dẫn</string>
-    <string name="susfs_mount_path_label">Đường dẫn Mount</string>
     <string name="susfs_path_placeholder">Ví dụ: /system/addon.d</string>
     <string name="susfs_no_paths_configured">Không có Đường dẫn SuS nào được cấu hình</string>
-    <string name="susfs_no_mounts_configured">Không có SuS Mount nào được cấu hình</string>
-    <string name="susfs_no_umounts_configured">Không có Try Umount nào được cấu hình</string>
     <!-- SuSFS Umount Mode -->
-    <string name="susfs_umount_mode_label">Chế độ Umount</string>
-    <string name="susfs_umount_mode_normal">Normal Umount (0)</string>
-    <string name="susfs_umount_mode_detach">Detach Umount (1)</string>
-    <string name="susfs_umount_mode_normal_short">Normal</string>
-    <string name="susfs_umount_mode_detach_short">Detach</string>
-    <string name="susfs_umount_mode_display">Chế độ: %1$s (%2$s)</string>
-    <string name="susfs_try_umount_added_success">Đường dẫn Try Umount đã thêm thành công: %s</string>
-    <string name="susfs_try_umount_added_saved">Đường dẫn Try Umount đã lưu thành công: %s</string>
     <!-- SuSFS Run Umount -->
     <!-- SuSFS Reset Categories -->
     <string name="susfs_reset_paths_title">Đặt lại Đường dẫn SuS</string>
     <string name="susfs_reset_paths_message">Thao tác này sẽ xóa tất cả các cấu hình Đường dẫn SuS. Bạn có chắc chắn muốn tiếp tục không?</string>
-    <string name="susfs_reset_mounts_title">Đặt lại SuS Mount</string>
-    <string name="susfs_reset_mounts_message">Thao tác này sẽ xóa tất cả các cấu hình SuS Mount. Bạn có chắc chắn muốn tiếp tục không?</string>
-    <string name="susfs_reset_umounts_title">Đặt lại Try Umount</string>
-    <string name="susfs_reset_umounts_message">Thao tác này sẽ xóa tất cả các cấu hình Try Umount. Bạn có chắc chắn muốn tiếp tục không?</string>
     <string name="susfs_reset_path_title">Reset Cài đặt Đường dẫn</string>
     <!-- SuSFS Path Settings -->
     <string name="susfs_android_data_path_label">Đường dẫn Android Data</string>
@@ -424,18 +405,12 @@
     <string name="susfs_feature_disabled">Đã tắt</string>
     <!-- Feature Labels -->
     <string name="sus_path_feature_label">Hỗ trợ Đường dẫn SuS</string>
-    <string name="sus_mount_feature_label">Hỗ trợ SuS Mount</string>
-    <string name="try_umount_feature_label">Hỗ trợ Try Umount</string>
     <string name="spoof_uname_feature_label">Hỗ trợ giả mạo Uname</string>
     <string name="spoof_cmdline_feature_label">Giả mạo Cmdline/Bootconfig</string>
     <string name="open_redirect_feature_label">Mở hỗ trợ chuyển hướng</string>
     <string name="enable_log_feature_label">Hỗ trợ ghi nhật ký</string>
-    <string name="auto_default_mount_feature_label">Tự động Mount mặc định</string>
-    <string name="auto_bind_mount_feature_label">Tự động Bind Mount</string>
-    <string name="auto_try_umount_bind_feature_label">Tự động Try Umount Bind Mount</string>
     <string name="hide_symbols_feature_label">Ẩn biểu tượng KSU SuSFS</string>
     <string name="sus_kstat_feature_label">Hỗ trợ SuS Kstat</string>
-    <string name="sus_su_feature_label">Chức năng chuyển đổi chế độ SuS SU</string>
     <!-- 可切换状态 -->
     <string name="susfs_feature_configurable">Nhấn để bật/tắt ghi nhật ký</string>
     <string name="susfs_enable_log_label">Kích hoạt nhật ký SuSFS</string>
@@ -531,8 +506,6 @@
     <string name="cleanup_residue">Dọn rác</string>
     <string name="cleanup_residue_description">Dọn dẹp các file và folder còn sót lại của các module và công cụ (Có thể bị xóa nhầm, dẫn đến mất dữ liệu và không khởi động được)</string>
     <string name="susfs_edit_sus_path">Chỉnh sửa Đường dẫn SuS</string>
-    <string name="susfs_edit_sus_mount">Chỉnh sửa SuS Mount</string>
-    <string name="susfs_edit_try_umount">Chỉnh sửa Try Umount</string>
     <string name="edit_kstat_statically_title">Chỉnh sửa cấu hình Kstat tĩnh</string>
     <string name="edit_kstat_path_title">Chỉnh sửa Đường dẫn Kstat</string>
     <string name="susfs_save">Lưu</string>
@@ -542,10 +515,6 @@
     <string name="kstat_config_updated">Cập nhật cấu hình Kstat</string>
     <string name="kstat_path_updated">Cập nhật Đường dẫn Kstat</string>
     <string name="susfs_update_full_clone">Cập nhật bản sao SuSFS đầy đủ</string>
-    <string name="umount_zygote_iso_service">Umount dịch vụ cô lập Zygote</string>
-    <string name="umount_zygote_iso_service_description">Umount các điểm dịch vụ cô lập Zygote khi khởi động hệ thống</string>
-    <string name="umount_zygote_iso_service_enabled">Umount dịch vụ cô lập Zygote đã bật</string>
-    <string name="umount_zygote_iso_service_disabled">Umount dịch vụ cô lập Zygote đã tắt</string>
     <string name="app_paths_section">Đường dẫn ứng dụng</string>
     <string name="other_paths_section">Đường dẫn khác</string>
     <string name="add_custom_path">Khác</string>
@@ -599,7 +568,7 @@
     <string name="avc_log_spoofing_enabled">Giả mạo nhật ký AVC đã kích hoạt</string>
     <string name="avc_log_spoofing_disabled">Giả mạo nhật ký AVC đã bị vô hiệu hoá</string>
     <string name="avc_log_spoofing_description">Tắt: Vô hiệu hoá tính năng giả mạo sus tcontext của \'su\' trong nhật ký AVC của kernel\n
-Bật: Kích hoạt tính năng giả mạo sus tcontext của \'su\' thành \'kernel\' trong nhật ký AVC của kernel</string>
+Bật: Kích hoạt tính năng giả mạo sus tcontext của \'su\' thành \'u:r:priv_app:s0:c512,c768\' trong nhật ký AVC của kernel</string>
     <string name="avc_log_spoofing_warning">Lưu ý quan trọng:\n
 - Giá trị này được đặt thành \'0\' theo mặc định trong kernel\n
 - Việc bật tính năng này đôi khi có thể khiến các nhà phát triển khó xác định nguyên nhân của các vấn đề về quyền hoặc SELinux khi gỡ lỗi, vì vậy người dùng nên tắt tính năng này khi gỡ lỗi</string>

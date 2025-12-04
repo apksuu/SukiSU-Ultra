@@ -23,6 +23,7 @@ import com.sukisu.ultra.ui.util.getRootShell
 import com.sukisu.ultra.ui.util.getSuSFSVersion
 import com.sukisu.ultra.ui.util.getSuSFSFeatures
 import com.sukisu.ultra.ui.viewmodel.SuperUserViewModel
+import com.topjohnwu.superuser.io.SuFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -44,8 +45,6 @@ object SuSFSManager {
     private const val KEY_SUS_LOOP_PATHS = "sus_loop_paths"
 
     private const val KEY_SUS_MAPS = "sus_maps"
-    private const val KEY_SUS_MOUNTS = "sus_mounts"
-    private const val KEY_TRY_UMOUNTS = "try_umounts"
     private const val KEY_ANDROID_DATA_PATH = "android_data_path"
     private const val KEY_SDCARD_PATH = "sdcard_path"
     private const val KEY_ENABLE_LOG = "enable_log"
@@ -55,7 +54,6 @@ object SuSFSManager {
     private const val KEY_HIDE_SUS_MOUNTS_FOR_ALL_PROCS = "hide_sus_mounts_for_all_procs"
     private const val KEY_ENABLE_CLEANUP_RESIDUE = "enable_cleanup_residue"
     private const val KEY_ENABLE_HIDE_BL = "enable_hide_bl"
-    private const val KEY_UMOUNT_FOR_ZYGOTE_ISO_SERVICE = "umount_for_zygote_iso_service"
     private const val KEY_ENABLE_AVC_LOG_SPOOFING = "enable_avc_log_spoofing"
 
 
@@ -71,7 +69,7 @@ object SuSFSManager {
     const val MAX_SUSFS_VERSION = "2.0.0"
     private const val BACKUP_FILE_EXTENSION = ".susfs_backup"
     private const val MEDIA_DATA_PATH = "/data/media/0/Android/data"
-    private const val CGROUP_UID_PATH_PREFIX = "/sys/fs/cgroup/uid_"
+    private const val CGROUP_BASE_PATH = "/sys/fs/cgroup"
 
     data class SlotInfo(val slotName: String, val uname: String, val buildTime: String)
     data class CommandResult(val isSuccess: Boolean, val output: String, val errorOutput: String = "")
@@ -157,8 +155,6 @@ object SuSFSManager {
         val susPaths: Set<String>,
         val susLoopPaths: Set<String>,
         val susMaps: Set<String>,
-        val susMounts: Set<String>,
-        val tryUmounts: Set<String>,
         val androidDataPath: String,
         val sdcardPath: String,
         val enableLog: Boolean,
@@ -168,7 +164,6 @@ object SuSFSManager {
         val support158: Boolean,
         val enableHideBl: Boolean,
         val enableCleanupResidue: Boolean,
-        val umountForZygoteIsoService: Boolean,
         val enableAvcLogSpoofing: Boolean
     ) {
         /**
@@ -180,8 +175,6 @@ object SuSFSManager {
                     susPaths.isNotEmpty() ||
                     susLoopPaths.isNotEmpty() ||
                     susMaps.isNotEmpty() ||
-                    susMounts.isNotEmpty() ||
-                    tryUmounts.isNotEmpty() ||
                     kstatConfigs.isNotEmpty() ||
                     addKstatPaths.isNotEmpty()
         }
@@ -271,8 +264,6 @@ object SuSFSManager {
             susPaths = getSusPaths(context),
             susLoopPaths = getSusLoopPaths(context),
             susMaps = getSusMaps(context),
-            susMounts = getSusMounts(context),
-            tryUmounts = getTryUmounts(context),
             androidDataPath = getAndroidDataPath(context),
             sdcardPath = getSdcardPath(context),
             enableLog = getEnableLogState(context),
@@ -282,7 +273,6 @@ object SuSFSManager {
             support158 = isSusVersion158(),
             enableHideBl = getEnableHideBl(context),
             enableCleanupResidue = getEnableCleanupResidue(context),
-            umountForZygoteIsoService = getUmountForZygoteIsoService(context),
             enableAvcLogSpoofing = getEnableAvcLogSpoofing(context)
         )
     }
@@ -346,13 +336,6 @@ object SuSFSManager {
     fun getEnableCleanupResidue(context: Context): Boolean =
         getPrefs(context).getBoolean(KEY_ENABLE_CLEANUP_RESIDUE, false)
 
-    // Zygote隔离服务卸载控制
-    fun saveUmountForZygoteIsoService(context: Context, enabled: Boolean) =
-        getPrefs(context).edit { putBoolean(KEY_UMOUNT_FOR_ZYGOTE_ISO_SERVICE, enabled) }
-
-    fun getUmountForZygoteIsoService(context: Context): Boolean =
-        getPrefs(context).getBoolean(KEY_UMOUNT_FOR_ZYGOTE_ISO_SERVICE, false)
-
     // AVC日志欺骗配置
     fun saveEnableAvcLogSpoofing(context: Context, enabled: Boolean) =
         getPrefs(context).edit { putBoolean(KEY_ENABLE_AVC_LOG_SPOOFING, enabled) }
@@ -380,18 +363,6 @@ object SuSFSManager {
 
     fun getSusMaps(context: Context): Set<String> =
         getPrefs(context).getStringSet(KEY_SUS_MAPS, emptySet()) ?: emptySet()
-
-    fun saveSusMounts(context: Context, mounts: Set<String>) =
-        getPrefs(context).edit { putStringSet(KEY_SUS_MOUNTS, mounts) }
-
-    fun getSusMounts(context: Context): Set<String> =
-        getPrefs(context).getStringSet(KEY_SUS_MOUNTS, emptySet()) ?: emptySet()
-
-    fun saveTryUmounts(context: Context, umounts: Set<String>) =
-        getPrefs(context).edit { putStringSet(KEY_TRY_UMOUNTS, umounts) }
-
-    fun getTryUmounts(context: Context): Set<String> =
-        getPrefs(context).getStringSet(KEY_TRY_UMOUNTS, emptySet()) ?: emptySet()
 
     fun saveKstatConfigs(context: Context, configs: Set<String>) =
         getPrefs(context).edit { putStringSet(KEY_KSTAT_CONFIGS, configs) }
@@ -494,7 +465,44 @@ object SuSFSManager {
         }
     }
 
-    private fun buildUidPath(uid: Int): String = "$CGROUP_UID_PATH_PREFIX$uid"
+    private fun checkPathExists(path: String): Boolean {
+        return try {
+            val shell = try {
+                getRootShell()
+            } catch (_: Exception) {
+                null
+            }
+            
+            val file = if (shell != null) {
+                SuFile(path).apply { setShell(shell) }
+            } else {
+                File(path)
+            }
+            
+            file.exists() && file.isDirectory
+        } catch (_: Exception) {
+            false
+        }
+    }
+    
+    private fun buildUidPath(uid: Int): String {
+        val possiblePaths = listOf(
+            "$CGROUP_BASE_PATH/uid_$uid",
+            "$CGROUP_BASE_PATH/apps/uid_$uid",
+            "$CGROUP_BASE_PATH/system/uid_$uid",
+            "$CGROUP_BASE_PATH/freezer/uid_$uid",
+            "$CGROUP_BASE_PATH/memory/uid_$uid",
+            "$CGROUP_BASE_PATH/cpuset/uid_$uid",
+            "$CGROUP_BASE_PATH/cpu/uid_$uid"
+        )
+        
+        for (path in possiblePaths) {
+            if (checkPathExists(path)) {
+                return path
+            }
+        }
+        return possiblePaths[0]
+    }
 
 
     // 快捷添加应用路径
@@ -547,8 +555,6 @@ object SuSFSManager {
             KEY_SUS_PATHS to getSusPaths(context),
             KEY_SUS_LOOP_PATHS to getSusLoopPaths(context),
             KEY_SUS_MAPS to getSusMaps(context),
-            KEY_SUS_MOUNTS to getSusMounts(context),
-            KEY_TRY_UMOUNTS to getTryUmounts(context),
             KEY_ANDROID_DATA_PATH to getAndroidDataPath(context),
             KEY_SDCARD_PATH to getSdcardPath(context),
             KEY_ENABLE_LOG to getEnableLogState(context),
@@ -558,7 +564,6 @@ object SuSFSManager {
             KEY_HIDE_SUS_MOUNTS_FOR_ALL_PROCS to getHideSusMountsForAllProcs(context),
             KEY_ENABLE_HIDE_BL to getEnableHideBl(context),
             KEY_ENABLE_CLEANUP_RESIDUE to getEnableCleanupResidue(context),
-            KEY_UMOUNT_FOR_ZYGOTE_ISO_SERVICE to getUmountForZygoteIsoService(context),
             KEY_ENABLE_AVC_LOG_SPOOFING to getEnableAvcLogSpoofing(context),
         )
     }
@@ -860,15 +865,13 @@ object SuSFSManager {
 
         val featureMap = mapOf(
             "CONFIG_KSU_SUSFS_SUS_PATH" to context.getString(R.string.sus_path_feature_label),
-            "CONFIG_KSU_SUSFS_SUS_MOUNT" to context.getString(R.string.sus_mount_feature_label),
-            "CONFIG_KSU_SUSFS_TRY_UMOUNT" to context.getString(R.string.try_umount_feature_label),
             "CONFIG_KSU_SUSFS_SPOOF_UNAME" to context.getString(R.string.spoof_uname_feature_label),
             "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG" to context.getString(R.string.spoof_cmdline_feature_label),
             "CONFIG_KSU_SUSFS_OPEN_REDIRECT" to context.getString(R.string.open_redirect_feature_label),
             "CONFIG_KSU_SUSFS_ENABLE_LOG" to context.getString(R.string.enable_log_feature_label),
-            "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT" to context.getString(R.string.auto_try_umount_bind_feature_label),
             "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS" to context.getString(R.string.hide_symbols_feature_label),
             "CONFIG_KSU_SUSFS_SUS_KSTAT" to context.getString(R.string.sus_kstat_feature_label),
+            "CONFIG_KSU_SUSFS_SUS_MAP" to context.getString(R.string.sus_map_feature_label),
         )
 
 
@@ -890,15 +893,13 @@ object SuSFSManager {
     private fun getDefaultDisabledFeatures(context: Context): List<EnabledFeature> {
         val defaultFeatures = listOf(
             "sus_path_feature_label" to context.getString(R.string.sus_path_feature_label),
-            "sus_mount_feature_label" to context.getString(R.string.sus_mount_feature_label),
-            "try_umount_feature_label" to context.getString(R.string.try_umount_feature_label),
             "spoof_uname_feature_label" to context.getString(R.string.spoof_uname_feature_label),
             "spoof_cmdline_feature_label" to context.getString(R.string.spoof_cmdline_feature_label),
             "open_redirect_feature_label" to context.getString(R.string.open_redirect_feature_label),
             "enable_log_feature_label" to context.getString(R.string.enable_log_feature_label),
-            "auto_try_umount_bind_feature_label" to context.getString(R.string.auto_try_umount_bind_feature_label),
             "hide_symbols_feature_label" to context.getString(R.string.hide_symbols_feature_label),
             "sus_kstat_feature_label" to context.getString(R.string.sus_kstat_feature_label),
+            "sus_map_feature_label" to context.getString(R.string.sus_map_feature_label)
         )
 
         return defaultFeatures.map { (_, displayName) ->
@@ -1180,130 +1181,6 @@ object SuSFSManager {
             showToast(context, "Error updating SUS map: ${e.message}")
             false
         }
-    }
-
-    // 添加SUS挂载
-    suspend fun addSusMount(context: Context, mount: String): Boolean {
-        val success = executeSusfsCommand(context, "add_sus_mount '$mount'")
-        if (success) {
-            saveSusMounts(context, getSusMounts(context) + mount)
-            if (isAutoStartEnabled(context)) updateMagiskModule(context)
-        }
-        return success
-    }
-
-    suspend fun removeSusMount(context: Context, mount: String): Boolean {
-        saveSusMounts(context, getSusMounts(context) - mount)
-        if (isAutoStartEnabled(context)) updateMagiskModule(context)
-        showToast(context, "Removed SUS mount: $mount")
-        return true
-    }
-
-    // 编辑SUS挂载
-    suspend fun editSusMount(context: Context, oldMount: String, newMount: String): Boolean {
-        return try {
-            val currentMounts = getSusMounts(context).toMutableSet()
-            if (!currentMounts.remove(oldMount)) {
-                showToast(context, "Original mount not found: $oldMount")
-                return false
-            }
-
-            saveSusMounts(context, currentMounts)
-
-            val success = addSusMount(context, newMount)
-
-            if (success) {
-                showToast(context, "SUS mount updated: $oldMount -> $newMount")
-                return true
-            } else {
-                // 如果添加新挂载点失败，恢复旧挂载点
-                currentMounts.add(oldMount)
-                saveSusMounts(context, currentMounts)
-                if (isAutoStartEnabled(context)) updateMagiskModule(context)
-                showToast(context, "Failed to update mount, reverted to original")
-                return false
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            showToast(context, "Error updating SUS mount: ${e.message}")
-            false
-        }
-    }
-
-    // 添加尝试卸载
-    suspend fun addTryUmount(context: Context, path: String, mode: Int): Boolean {
-        val commandSuccess = executeSusfsCommand(context, "add_try_umount '$path' $mode")
-        saveTryUmounts(context, getTryUmounts(context) + "$path|$mode")
-        if (isAutoStartEnabled(context)) updateMagiskModule(context)
-
-        showToast(context, if (commandSuccess) {
-            context.getString(R.string.susfs_try_umount_added_success, path)
-        } else {
-            context.getString(R.string.susfs_try_umount_added_saved, path)
-        })
-        return true
-    }
-
-    suspend fun removeTryUmount(context: Context, umountEntry: String): Boolean {
-        saveTryUmounts(context, getTryUmounts(context) - umountEntry)
-        if (isAutoStartEnabled(context)) updateMagiskModule(context)
-        val path = umountEntry.split("|").firstOrNull() ?: umountEntry
-        showToast(context, "Removed Try to uninstall: $path")
-        return true
-    }
-
-    // 编辑尝试卸载
-    suspend fun editTryUmount(context: Context, oldEntry: String, newPath: String, newMode: Int): Boolean {
-        return try {
-            val currentUmounts = getTryUmounts(context).toMutableSet()
-            if (!currentUmounts.remove(oldEntry)) {
-                showToast(context, "Original umount entry not found: $oldEntry")
-                return false
-            }
-
-            saveTryUmounts(context, currentUmounts)
-
-            val success = addTryUmount(context, newPath, newMode)
-
-            if (success) {
-                showToast(context, "Try umount updated: $oldEntry -> $newPath|$newMode")
-                return true
-            } else {
-                // 如果添加新条目失败，恢复旧条目
-                currentUmounts.add(oldEntry)
-                saveTryUmounts(context, currentUmounts)
-                if (isAutoStartEnabled(context)) updateMagiskModule(context)
-                showToast(context, "Failed to update umount entry, reverted to original")
-                return false
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            showToast(context, "Error updating try umount: ${e.message}")
-            false
-        }
-    }
-
-    // Zygote隔离服务卸载控制
-    suspend fun setUmountForZygoteIsoService(context: Context, enabled: Boolean): Boolean {
-        if (!isSusVersion158()) {
-            return false
-        }
-
-        val result = executeSusfsCommandWithOutput(context, "umount_for_zygote_iso_service ${if (enabled) 1 else 0}")
-        val success = result.isSuccess && result.output.isEmpty()
-
-        if (success) {
-            saveUmountForZygoteIsoService(context, enabled)
-            if (isAutoStartEnabled(context)) updateMagiskModule(context)
-            showToast(context, if (enabled)
-                context.getString(R.string.umount_zygote_iso_service_enabled)
-            else
-                context.getString(R.string.umount_zygote_iso_service_disabled)
-            )
-        } else {
-            showToast(context, context.getString(R.string.susfs_command_failed))
-        }
-        return success
     }
 
     // 添加kstat配置

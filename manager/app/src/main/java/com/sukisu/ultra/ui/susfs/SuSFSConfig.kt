@@ -47,8 +47,6 @@ enum class SuSFSTab(val displayNameRes: Int) {
     SUS_PATHS(R.string.susfs_tab_sus_paths),
     SUS_LOOP_PATHS(R.string.susfs_tab_sus_loop_paths),
     SUS_MAPS(R.string.susfs_tab_sus_maps),
-    SUS_MOUNTS(R.string.susfs_tab_sus_mounts),
-    TRY_UMOUNT(R.string.susfs_tab_try_umount),
     KSTAT_CONFIG(R.string.susfs_tab_kstat_config),
     PATH_SETTINGS(R.string.susfs_tab_path_settings),
     ENABLED_FEATURES(R.string.susfs_tab_enabled_features);
@@ -99,15 +97,11 @@ fun SuSFSConfigScreen(
     var susPaths by remember { mutableStateOf(emptySet<String>()) }
     var susLoopPaths by remember { mutableStateOf(emptySet<String>()) }
     var susMaps by remember { mutableStateOf(emptySet<String>()) }
-    var susMounts by remember { mutableStateOf(emptySet<String>()) }
-    var tryUmounts by remember { mutableStateOf(emptySet<String>()) }
     var androidDataPath by remember { mutableStateOf("") }
     var sdcardPath by remember { mutableStateOf("") }
 
     // SUS挂载隐藏控制状态
     var hideSusMountsForAllProcs by remember { mutableStateOf(true) }
-
-    var umountForZygoteIsoService by remember { mutableStateOf(false) }
 
     // Kstat配置相关状态
     var kstatConfigs by remember { mutableStateOf(emptySet<String>()) }
@@ -125,8 +119,6 @@ fun SuSFSConfigScreen(
     var showAddLoopPathDialog by remember { mutableStateOf(false) }
     var showAddSusMapDialog by remember { mutableStateOf(false) }
     var showAddAppPathDialog by remember { mutableStateOf(false) }
-    var showAddMountDialog by remember { mutableStateOf(false) }
-    var showAddUmountDialog by remember { mutableStateOf(false) }
     var showAddKstatStaticallyDialog by remember { mutableStateOf(false) }
     var showAddKstatDialog by remember { mutableStateOf(false) }
 
@@ -134,8 +126,6 @@ fun SuSFSConfigScreen(
     var editingPath by remember { mutableStateOf<String?>(null) }
     var editingLoopPath by remember { mutableStateOf<String?>(null) }
     var editingSusMap by remember { mutableStateOf<String?>(null) }
-    var editingMount by remember { mutableStateOf<String?>(null) }
-    var editingUmount by remember { mutableStateOf<String?>(null) }
     var editingKstatConfig by remember { mutableStateOf<String?>(null) }
     var editingKstatPath by remember { mutableStateOf<String?>(null) }
 
@@ -143,8 +133,6 @@ fun SuSFSConfigScreen(
     var showResetPathsDialog by remember { mutableStateOf(false) }
     var showResetLoopPathsDialog by remember { mutableStateOf(false) }
     var showResetSusMapsDialog by remember { mutableStateOf(false) }
-    var showResetMountsDialog by remember { mutableStateOf(false) }
-    var showResetUmountsDialog by remember { mutableStateOf(false) }
     var showResetKstatDialog by remember { mutableStateOf(false) }
 
     // 备份还原相关状态
@@ -304,8 +292,6 @@ fun SuSFSConfigScreen(
             susPaths = SuSFSManager.getSusPaths(context)
             susLoopPaths = SuSFSManager.getSusLoopPaths(context)
             susMaps = SuSFSManager.getSusMaps(context)
-            susMounts = SuSFSManager.getSusMounts(context)
-            tryUmounts = SuSFSManager.getTryUmounts(context)
             androidDataPath = SuSFSManager.getAndroidDataPath(context)
             sdcardPath = SuSFSManager.getSdcardPath(context)
             kstatConfigs = SuSFSManager.getKstatConfigs(context)
@@ -313,7 +299,6 @@ fun SuSFSConfigScreen(
             hideSusMountsForAllProcs = SuSFSManager.getHideSusMountsForAllProcs(context)
             enableHideBl = SuSFSManager.getEnableHideBl(context)
             enableCleanupResidue = SuSFSManager.getEnableCleanupResidue(context)
-            umountForZygoteIsoService = SuSFSManager.getUmountForZygoteIsoService(context)
             enableAvcLogSpoofing = SuSFSManager.getEnableAvcLogSpoofing(context)
 
             loadSlotInfo()
@@ -477,8 +462,6 @@ fun SuSFSConfigScreen(
                                     susPaths = SuSFSManager.getSusPaths(context)
                                     susLoopPaths = SuSFSManager.getSusLoopPaths(context)
                                     susMaps = SuSFSManager.getSusMaps(context)
-                                    susMounts = SuSFSManager.getSusMounts(context)
-                                    tryUmounts = SuSFSManager.getTryUmounts(context)
                                     androidDataPath = SuSFSManager.getAndroidDataPath(context)
                                     sdcardPath = SuSFSManager.getSdcardPath(context)
                                     kstatConfigs = SuSFSManager.getKstatConfigs(context)
@@ -486,7 +469,6 @@ fun SuSFSConfigScreen(
                                     hideSusMountsForAllProcs = SuSFSManager.getHideSusMountsForAllProcs(context)
                                     enableHideBl = SuSFSManager.getEnableHideBl(context)
                                     enableCleanupResidue = SuSFSManager.getEnableCleanupResidue(context)
-                                    umountForZygoteIsoService = SuSFSManager.getUmountForZygoteIsoService(context)
                                     enableAvcLogSpoofing = SuSFSManager.getEnableAvcLogSpoofing(context)
                                 }
                                 isLoading = false
@@ -649,62 +631,6 @@ fun SuSFSConfigScreen(
         existingSusPaths = susPaths
     )
 
-    AddPathDialog(
-        showDialog = showAddMountDialog,
-        onDismiss = {
-            showAddMountDialog = false
-            editingMount = null
-        },
-        onConfirm = { mount ->
-            coroutineScope.launch {
-                isLoading = true
-                val success = if (editingMount != null) {
-                    SuSFSManager.editSusMount(context, editingMount!!, mount)
-                } else {
-                    SuSFSManager.addSusMount(context, mount)
-                }
-                if (success) {
-                    susMounts = SuSFSManager.getSusMounts(context)
-                }
-                isLoading = false
-                showAddMountDialog = false
-                editingMount = null
-            }
-        },
-        isLoading = isLoading,
-        titleRes = if (editingMount != null) R.string.susfs_edit_sus_mount else R.string.susfs_add_sus_mount,
-        labelRes = R.string.susfs_mount_path_label,
-        placeholderRes = R.string.susfs_path_placeholder,
-        initialValue = editingMount ?: ""
-    )
-
-    AddTryUmountDialog(
-        showDialog = showAddUmountDialog,
-        onDismiss = {
-            showAddUmountDialog = false
-            editingUmount = null
-        },
-        onConfirm = { path, mode ->
-            coroutineScope.launch {
-                isLoading = true
-                val success = if (editingUmount != null) {
-                    SuSFSManager.editTryUmount(context, editingUmount!!, path, mode)
-                } else {
-                    SuSFSManager.addTryUmount(context, path, mode)
-                }
-                if (success) {
-                    tryUmounts = SuSFSManager.getTryUmounts(context)
-                }
-                isLoading = false
-                showAddUmountDialog = false
-                editingUmount = null
-            }
-        },
-        isLoading = isLoading,
-        initialPath = editingUmount?.split("|")?.get(0) ?: "",
-        initialMode = editingUmount?.split("|")?.get(1)?.toIntOrNull() ?: 0
-    )
-
     AddKstatStaticallyDialog(
         showDialog = showAddKstatStaticallyDialog,
         onDismiss = {
@@ -861,48 +787,6 @@ fun SuSFSConfigScreen(
         },
         titleRes = R.string.susfs_reset_sus_maps_title,
         messageRes = R.string.susfs_reset_sus_maps_message,
-        isLoading = isLoading,
-        isDestructive = true
-    )
-
-    ConfirmDialog(
-        showDialog = showResetMountsDialog,
-        onDismiss = { showResetMountsDialog = false },
-        onConfirm = {
-            coroutineScope.launch {
-                isLoading = true
-                SuSFSManager.saveSusMounts(context, emptySet())
-                susMounts = emptySet()
-                if (SuSFSManager.isAutoStartEnabled(context)) {
-                    SuSFSManager.configureAutoStart(context, true)
-                }
-                isLoading = false
-                showResetMountsDialog = false
-            }
-        },
-        titleRes = R.string.susfs_reset_mounts_title,
-        messageRes = R.string.susfs_reset_mounts_message,
-        isLoading = isLoading,
-        isDestructive = true
-    )
-
-    ConfirmDialog(
-        showDialog = showResetUmountsDialog,
-        onDismiss = { showResetUmountsDialog = false },
-        onConfirm = {
-            coroutineScope.launch {
-                isLoading = true
-                SuSFSManager.saveTryUmounts(context, emptySet())
-                tryUmounts = emptySet()
-                if (SuSFSManager.isAutoStartEnabled(context)) {
-                    SuSFSManager.configureAutoStart(context, true)
-                }
-                isLoading = false
-                showResetUmountsDialog = false
-            }
-        },
-        titleRes = R.string.susfs_reset_umounts_title,
-        messageRes = R.string.susfs_reset_umounts_message,
         isLoading = isLoading,
         isDestructive = true
     )
@@ -1106,50 +990,6 @@ fun SuSFSConfigScreen(
                             }
                         }
 
-                        SuSFSTab.SUS_MOUNTS -> {
-                            OutlinedButton(
-                                onClick = { showResetMountsDialog = true },
-                                enabled = !isLoading && susMounts.isNotEmpty(),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.RestoreFromTrash,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    stringResource(R.string.susfs_reset_mounts_title),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        SuSFSTab.TRY_UMOUNT -> {
-                            OutlinedButton(
-                                onClick = { showResetUmountsDialog = true },
-                                enabled = !isLoading && tryUmounts.isNotEmpty(),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.RestoreFromTrash,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    stringResource(R.string.susfs_reset_umounts_title),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
                         SuSFSTab.KSTAT_CONFIG -> {
                             OutlinedButton(
                                 onClick = { showResetKstatDialog = true },
@@ -1325,6 +1165,20 @@ fun SuSFSConfigScreen(
                                     }
                                     isLoading = false
                                 }
+                            },
+                            hideSusMountsForAllProcs = hideSusMountsForAllProcs,
+                            onHideSusMountsForAllProcsChange = { hideForAll ->
+                                coroutineScope.launch {
+                                    isLoading = true
+                                    if (SuSFSManager.setHideSusMountsForAllProcs(
+                                            context,
+                                            hideForAll
+                                        )
+                                    ) {
+                                        hideSusMountsForAllProcs = hideForAll
+                                    }
+                                    isLoading = false
+                                }
                             }
                         )
                     }
@@ -1387,76 +1241,6 @@ fun SuSFSConfigScreen(
                             onEditSusMap = { map ->
                                 editingSusMap = map
                                 showAddSusMapDialog = true
-                            }
-                        )
-                    }
-                    SuSFSTab.SUS_MOUNTS -> {
-                        val isSusVersion158 = remember { isSusVersion158() }
-
-                        SusMountsContent(
-                            susMounts = susMounts,
-                            hideSusMountsForAllProcs = hideSusMountsForAllProcs,
-                            isSusVersion158 = isSusVersion158,
-                            isLoading = isLoading,
-                            onAddMount = { showAddMountDialog = true },
-                            onRemoveMount = { mount ->
-                                coroutineScope.launch {
-                                    isLoading = true
-                                    if (SuSFSManager.removeSusMount(context, mount)) {
-                                        susMounts = SuSFSManager.getSusMounts(context)
-                                    }
-                                    isLoading = false
-                                }
-                            },
-                            onEditMount = { mount ->
-                                editingMount = mount
-                                showAddMountDialog = true
-                            },
-                            onToggleHideSusMountsForAllProcs = { hideForAll ->
-                                coroutineScope.launch {
-                                    isLoading = true
-                                    if (SuSFSManager.setHideSusMountsForAllProcs(
-                                            context,
-                                            hideForAll
-                                        )
-                                    ) {
-                                        hideSusMountsForAllProcs = hideForAll
-                                    }
-                                    isLoading = false
-                                }
-                            }
-                        )
-                    }
-
-                    SuSFSTab.TRY_UMOUNT -> {
-                        TryUmountContent(
-                            tryUmounts = tryUmounts,
-                            umountForZygoteIsoService = umountForZygoteIsoService,
-                            isLoading = isLoading,
-                            onAddUmount = { showAddUmountDialog = true },
-                            onRemoveUmount = { umountEntry ->
-                                coroutineScope.launch {
-                                    isLoading = true
-                                    if (SuSFSManager.removeTryUmount(context, umountEntry)) {
-                                        tryUmounts = SuSFSManager.getTryUmounts(context)
-                                    }
-                                    isLoading = false
-                                }
-                            },
-                            onEditUmount = { umountEntry ->
-                                editingUmount = umountEntry
-                                showAddUmountDialog = true
-                            },
-                            onToggleUmountForZygoteIsoService = { enabled ->
-                                coroutineScope.launch {
-                                    isLoading = true
-                                    val success =
-                                        SuSFSManager.setUmountForZygoteIsoService(context, enabled)
-                                    if (success) {
-                                        umountForZygoteIsoService = enabled
-                                    }
-                                    isLoading = false
-                                }
                             }
                         )
                     }
@@ -1570,7 +1354,9 @@ private fun BasicSettingsContent(
     enableCleanupResidue: Boolean,
     onEnableCleanupResidueChange: (Boolean) -> Unit,
     enableAvcLogSpoofing: Boolean,
-    onEnableAvcLogSpoofingChange: (Boolean) -> Unit
+    onEnableAvcLogSpoofingChange: (Boolean) -> Unit,
+    hideSusMountsForAllProcs: Boolean,
+    onHideSusMountsForAllProcsChange: (Boolean) -> Unit,
 ) {
     var scriptLocationExpanded by remember { mutableStateOf(false) }
     val isAbDevice = produceState(initialValue = false) {
@@ -1944,6 +1730,16 @@ private fun BasicSettingsContent(
                     )
                 }
             }
+        }
+
+        // 对所有进程隐藏sus挂载开关（仅在1.5.8+版本显示）
+        val isSusVersion158 = isSusVersion158()
+        if (isSusVersion158) {
+            SusMountHidingControlCard(
+                hideSusMountsForAllProcs = hideSusMountsForAllProcs,
+                isLoading = isLoading,
+                onToggleHiding = onHideSusMountsForAllProcsChange
+            )
         }
 
         // 槽位信息按钮
